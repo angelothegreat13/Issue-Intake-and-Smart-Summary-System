@@ -2,6 +2,12 @@
 
 @section('title', 'New Issue')
 
+@php
+    use App\Enums\Priority;
+    use App\Enums\Status;
+    use App\Enums\Category;
+@endphp
+
 @section('content')
 <div class="row justify-content-center">
     <div class="col-lg-8">
@@ -38,9 +44,9 @@
                         <div class="col-sm-4">
                             <label class="form-label fw-semibold">Priority <span class="text-danger">*</span></label>
                             <select name="priority" class="form-select @error('priority') is-invalid @enderror">
-                                @foreach(['low','medium','high','critical'] as $p)
-                                    <option value="{{ $p }}" @selected(old('priority', 'medium') === $p)>
-                                        {{ ucfirst($p) }}
+                                @foreach(Priority::cases() as $p)
+                                    <option value="{{ $p->value }}" @selected(old('priority', 'medium') === $p->value)>
+                                        {{ $p->label() }}
                                     </option>
                                 @endforeach
                             </select>
@@ -51,14 +57,14 @@
 
                         <div class="col-sm-4">
                             <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
-                            <input type="text" name="category" list="category-suggestions"
-                                   class="form-control @error('category') is-invalid @enderror"
-                                   value="{{ old('category') }}" placeholder="e.g. bug, feature, security">
-                            <datalist id="category-suggestions">
-                                @foreach(['bug','feature','infrastructure','performance','data','security'] as $c)
-                                    <option value="{{ $c }}">
+                            <select name="category" class="form-select @error('category') is-invalid @enderror">
+                                <option value="">Select category…</option>
+                                @foreach(Category::cases() as $c)
+                                    <option value="{{ $c->value }}" @selected(old('category') === $c->value)>
+                                        {{ $c->label() }}
+                                    </option>
                                 @endforeach
-                            </datalist>
+                            </select>
                             @error('category')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
@@ -67,9 +73,9 @@
                         <div class="col-sm-4">
                             <label class="form-label fw-semibold">Status</label>
                             <select name="status" class="form-select @error('status') is-invalid @enderror">
-                                @foreach(['open','in_progress','resolved','closed'] as $s)
-                                    <option value="{{ $s }}" @selected(old('status', 'open') === $s)>
-                                        {{ ucfirst(str_replace('_', ' ', $s)) }}
+                                @foreach(Status::cases() as $s)
+                                    <option value="{{ $s->value }}" @selected(old('status', 'open') === $s->value)>
+                                        {{ $s->label() }}
                                     </option>
                                 @endforeach
                             </select>

@@ -3,6 +3,10 @@
 @section('title', 'Issues')
 
 @php
+    use App\Enums\Priority;
+    use App\Enums\Status;
+    use App\Enums\Category;
+
     $priorityClass = fn($p) => match($p) {
         'critical' => 'badge-priority-critical',
         'high'     => 'badge-priority-high',
@@ -26,9 +30,9 @@
                 <label class="form-label mb-1 small fw-semibold">Status</label>
                 <select name="status" class="form-select form-select-sm">
                     <option value="">All statuses</option>
-                    @foreach(['open','in_progress','resolved','closed'] as $s)
-                        <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>
-                            {{ ucfirst(str_replace('_', ' ', $s)) }}
+                    @foreach(Status::cases() as $s)
+                        <option value="{{ $s->value }}" @selected(($filters['status'] ?? '') === $s->value)>
+                            {{ $s->label() }}
                         </option>
                     @endforeach
                 </select>
@@ -37,17 +41,23 @@
                 <label class="form-label mb-1 small fw-semibold">Priority</label>
                 <select name="priority" class="form-select form-select-sm">
                     <option value="">All priorities</option>
-                    @foreach(['low','medium','high','critical'] as $p)
-                        <option value="{{ $p }}" @selected(($filters['priority'] ?? '') === $p)>
-                            {{ ucfirst($p) }}
+                    @foreach(Priority::cases() as $p)
+                        <option value="{{ $p->value }}" @selected(($filters['priority'] ?? '') === $p->value)>
+                            {{ $p->label() }}
                         </option>
                     @endforeach
                 </select>
             </div>
             <div class="col-sm-3">
                 <label class="form-label mb-1 small fw-semibold">Category</label>
-                <input type="text" name="category" class="form-control form-control-sm"
-                       placeholder="Search category…" value="{{ $filters['category'] ?? '' }}">
+                <select name="category" class="form-select form-select-sm">
+                    <option value="">All categories</option>
+                    @foreach(Category::cases() as $c)
+                        <option value="{{ $c->value }}" @selected(($filters['category'] ?? '') === $c->value)>
+                            {{ $c->label() }}
+                        </option>
+                    @endforeach
+                </select>
             </div>
             <div class="col-sm-2">
                 <label class="form-label mb-1 small fw-semibold">Escalated</label>
@@ -91,14 +101,14 @@
                             </a>
                         </td>
                         <td>
-                            <span class="badge {{ $priorityClass($issue->priority) }}">
-                                {{ ucfirst($issue->priority) }}
+                            <span class="badge {{ $priorityClass($issue->priority->value) }}">
+                                {{ $issue->priority->label() }}
                             </span>
                         </td>
-                        <td class="small">{{ $issue->category }}</td>
+                        <td class="small">{{ $issue->category->label() }}</td>
                         <td>
-                            <span class="badge {{ $statusClass($issue->status) }}">
-                                {{ ucfirst(str_replace('_', ' ', $issue->status)) }}
+                            <span class="badge {{ $statusClass($issue->status->value) }}">
+                                {{ $issue->status->label() }}
                             </span>
                         </td>
                         <td>
@@ -110,7 +120,7 @@
                         </td>
                         <td class="small">
                             @if($issue->due_at)
-                                <span class="{{ $issue->due_at->isPast() && $issue->status !== 'resolved' ? 'text-danger fw-semibold' : '' }}">
+                                <span class="{{ $issue->due_at->isPast() && $issue->status !== Status::Resolved ? 'text-danger fw-semibold' : '' }}">
                                     {{ $issue->due_at->format('M d, Y') }}
                                 </span>
                             @else

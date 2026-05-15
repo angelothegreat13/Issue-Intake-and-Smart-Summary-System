@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\Category;
+use App\Enums\Priority;
+use App\Enums\Status;
 use Illuminate\Database\Eloquent\Model;
 
 class Issue extends Model
@@ -19,13 +22,16 @@ class Issue extends Model
     ];
 
     protected $casts = [
+        'priority'  => Priority::class,
+        'status'    => Status::class,
+        'category'  => Category::class,
         'escalated' => 'boolean',
-        'due_at' => 'datetime',
+        'due_at'    => 'datetime',
     ];
 
     protected $attributes = [
-        'status' => 'open',
-        'priority' => 'medium',
+        'status'    => 'open',
+        'priority'  => 'medium',
         'escalated' => false,
     ];
 }

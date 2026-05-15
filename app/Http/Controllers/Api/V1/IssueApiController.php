@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\V1\StoreIssueRequest;
-use App\Http\Requests\V1\UpdateIssueRequest;
+use App\Http\Requests\StoreIssueRequest;
+use App\Http\Requests\UpdateIssueRequest;
 use App\Http\Resources\V1\IssueResource;
 use App\Models\Issue;
 use App\Services\IssueService;
@@ -12,7 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-class IssueController extends Controller
+class IssueApiController extends Controller
 {
     public function __construct(private readonly IssueService $issueService) {}
 

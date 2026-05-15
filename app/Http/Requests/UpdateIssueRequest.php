@@ -1,8 +1,12 @@
 <?php
 
-namespace App\Http\Requests\V1;
+namespace App\Http\Requests;
 
+use App\Enums\Category;
+use App\Enums\Priority;
+use App\Enums\Status;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateIssueRequest extends FormRequest
 {
@@ -16,9 +20,9 @@ class UpdateIssueRequest extends FormRequest
         return [
             'title'       => 'sometimes|required|string|min:5|max:200',
             'description' => 'sometimes|required|string|min:10|max:5000',
-            'priority'    => 'sometimes|required|in:low,medium,high,critical',
-            'category'    => 'sometimes|required|string|max:100',
-            'status'      => 'sometimes|in:open,in_progress,resolved,closed',
+            'priority'    => ['sometimes', 'required', Rule::enum(Priority::class)],
+            'category'    => ['sometimes', 'required', Rule::enum(Category::class)],
+            'status'      => ['sometimes', Rule::enum(Status::class)],
             'due_at'      => 'nullable|date',
         ];
     }

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\Priority;
+use App\Enums\Status;
 use App\Models\Issue;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
@@ -35,8 +37,8 @@ class IssueService
             $summary = $this->summaryService->generateSummary(
                 $issue->title,
                 $issue->description,
-                $issue->priority,
-                $issue->category,
+                $issue->priority->value,
+                $issue->category->value,
             );
             $issue->fill($summary);
         }
@@ -60,7 +62,7 @@ class IssueService
         }
 
         if (! empty($filters['category'])) {
-            $query->where('category', 'like', '%' . $filters['category'] . '%');
+            $query->where('category', $filters['category']);
         }
 
         if (isset($filters['escalated']) && $filters['escalated'] !== '') {
@@ -73,8 +75,8 @@ class IssueService
     private function applyEscalation(Issue $issue): void
     {
         $issue->escalated =
-            $issue->priority === 'critical'
-            || ($issue->priority === 'high' && $issue->status === 'open')
-            || ($issue->due_at !== null && $issue->due_at->isPast() && $issue->status !== 'resolved');
+            $issue->priority === Priority::Critical
+            || ($issue->priority === Priority::High && $issue->status === Status::Open)
+            || ($issue->due_at !== null && $issue->due_at->isPast() && $issue->status !== Status::Resolved);
     }
 }

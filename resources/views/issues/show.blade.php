@@ -3,6 +3,8 @@
 @section('title', $issue->title)
 
 @php
+    use App\Enums\Status;
+
     $priorityColors = [
         'critical' => 'danger',
         'high'     => 'warning',
@@ -15,8 +17,8 @@
         'resolved'    => 'success',
         'closed'      => 'secondary',
     ];
-    $priorityColor = $priorityColors[$issue->priority] ?? 'secondary';
-    $statusColor   = $statusColors[$issue->status] ?? 'secondary';
+    $priorityColor = $priorityColors[$issue->priority->value] ?? 'secondary';
+    $statusColor   = $statusColors[$issue->status->value] ?? 'secondary';
 @endphp
 
 @section('content')
@@ -29,20 +31,20 @@
             <div class="flex-fill">
                 <h4 class="mb-1">{{ $issue->title }}</h4>
                 <div class="d-flex flex-wrap gap-2 align-items-center">
-                    <span class="badge bg-{{ $priorityColor }} {{ $issue->priority === 'high' ? 'text-dark' : '' }}">
-                        {{ ucfirst($issue->priority) }} priority
+                    <span class="badge bg-{{ $priorityColor }} {{ $issue->priority->value === 'high' ? 'text-dark' : '' }}">
+                        {{ $issue->priority->label() }} priority
                     </span>
-                    <span class="badge bg-{{ $statusColor }} {{ $issue->status === 'in_progress' ? 'text-dark' : '' }}">
-                        {{ ucfirst(str_replace('_', ' ', $issue->status)) }}
+                    <span class="badge bg-{{ $statusColor }} {{ $issue->status->value === 'in_progress' ? 'text-dark' : '' }}">
+                        {{ $issue->status->label() }}
                     </span>
-                    <span class="badge bg-light text-dark border">{{ $issue->category }}</span>
+                    <span class="badge bg-light text-dark border">{{ $issue->category->label() }}</span>
                     @if($issue->escalated)
                         <span class="badge bg-danger">Escalated</span>
                     @endif
                     @if($issue->due_at)
-                        <span class="small {{ $issue->due_at->isPast() && $issue->status !== 'resolved' ? 'text-danger fw-semibold' : 'text-muted' }}">
+                        <span class="small {{ $issue->due_at->isPast() && $issue->status !== Status::Resolved ? 'text-danger fw-semibold' : 'text-muted' }}">
                             Due: {{ $issue->due_at->format('M d, Y H:i') }}
-                            @if($issue->due_at->isPast() && $issue->status !== 'resolved')
+                            @if($issue->due_at->isPast() && $issue->status !== Status::Resolved)
                                 (overdue)
                             @endif
                         </span>

@@ -13,7 +13,7 @@ return new class extends Migration
             $table->string('title', 200);
             $table->text('description');
             $table->enum('priority', ['low', 'medium', 'high', 'critical'])->default('medium');
-            $table->string('category', 100);
+            $table->enum('category', ['bug', 'feature', 'infrastructure', 'performance', 'data', 'security']);
             $table->enum('status', ['open', 'in_progress', 'resolved', 'closed'])->default('open');
             $table->text('summary')->nullable();
             $table->text('suggested_action')->nullable();
