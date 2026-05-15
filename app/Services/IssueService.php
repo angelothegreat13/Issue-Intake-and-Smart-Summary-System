@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\SummaryServiceInterface;
 use App\Enums\Priority;
 use App\Enums\Status;
 use App\Models\Issue;
@@ -9,7 +10,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class IssueService
 {
-    public function __construct(private readonly SummaryService $summaryService) {}
+    public function __construct(private readonly SummaryServiceInterface $summaryService) {}
 
     public function create(array $data): Issue
     {

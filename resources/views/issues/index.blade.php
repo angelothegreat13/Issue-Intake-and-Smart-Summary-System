@@ -8,10 +8,10 @@
     use App\Enums\Category;
 
     $priorityClass = fn($p) => match($p) {
-        'critical' => 'badge-priority-critical',
-        'high'     => 'badge-priority-high',
-        'medium'   => 'badge-priority-medium',
-        default    => 'badge-priority-low',
+        Priority::Critical->value => 'badge-priority-critical',
+        Priority::High->value     => 'badge-priority-high',
+        Priority::Medium->value   => 'badge-priority-medium',
+        default                   => 'badge-priority-low',
     };
     $statusClass = fn($s) => 'badge-status-' . $s;
 @endphp

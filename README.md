@@ -5,13 +5,13 @@ Issues are automatically escalated and summarised — either by the Anthropic AP
 
 ---
 
-## Setup (5 commands)
+## Setup
 
 ```bash
 composer install
-cp .env.example .env && php artisan key:generate
-php artisan migrate
-php artisan db:seed
+cp .env.example .env
+php artisan key:generate
+php artisan migrate --seed
 php artisan serve
 ```
 
@@ -26,25 +26,22 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## API Endpoints
 
-All endpoints are prefixed `/api`. Send `Accept: application/json` for JSON error responses.
+All endpoints are prefixed `/api/v1`. The `Accept: application/json` header is not required — the API always returns JSON.
 
 ### List issues
 
 ```bash
 # All issues (paginated, 15 per page)
-curl http://localhost:8000/api/issues \
-  -H "Accept: application/json"
+curl http://localhost:8000/api/v1/issues
 
 # With filters: ?status=open&priority=high&category=bug&escalated=1
-curl "http://localhost:8000/api/issues?status=open&priority=critical" \
-  -H "Accept: application/json"
+curl "http://localhost:8000/api/v1/issues?status=open&priority=critical"
 ```
 
 ### Create an issue
 
 ```bash
-curl -X POST http://localhost:8000/api/issues \
-  -H "Accept: application/json" \
+curl -X POST http://localhost:8000/api/v1/issues \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Login page throws 500 on mobile Safari",
@@ -58,15 +55,13 @@ curl -X POST http://localhost:8000/api/issues \
 ### Get a single issue
 
 ```bash
-curl http://localhost:8000/api/issues/1 \
-  -H "Accept: application/json"
+curl http://localhost:8000/api/v1/issues/1
 ```
 
 ### Update an issue (partial)
 
 ```bash
-curl -X PATCH http://localhost:8000/api/issues/1 \
-  -H "Accept: application/json" \
+curl -X PATCH http://localhost:8000/api/v1/issues/1 \
   -H "Content-Type: application/json" \
   -d '{"status": "in_progress"}'
 ```
@@ -78,16 +73,23 @@ curl -X PATCH http://localhost:8000/api/issues/1 \
 ```
 routes/
   web.php          → Blade UI (GET/POST/PATCH /issues/*)
-  api.php          → JSON API  (GET/POST/PATCH /api/issues/*)
+  api.php          → JSON API  (GET/POST/PATCH /api/v1/issues/*)
 
 app/
+  Enums/
+    Priority.php   → low | medium | high | critical
+    Status.php     → open | in_progress | resolved | closed
+    Category.php   → bug | feature | infrastructure | performance | data | security
+
   Http/
     Controllers/
-      IssueController.php         → web controller (returns views)
-      Api/IssueController.php     → API controller (returns JSON)
+      IssueController.php           → web controller (returns views)
+      Api/V1/IssueApiController.php → versioned API controller (returns JSON via Resources)
     Requests/
-      StoreIssueRequest.php       → validation for create
-      UpdateIssueRequest.php      → validation for update (all fields optional)
+      StoreIssueRequest.php         → validation for create (Rule::enum for all enum fields)
+      UpdateIssueRequest.php        → validation for update (all fields optional via sometimes)
+    Resources/
+      V1/IssueResource.php          → shapes the JSON response; exposes ->value strings
 
   Services/
     IssueService.php    → orchestrates create/update/list; calls SummaryService;
@@ -96,10 +98,11 @@ app/
                           when ANTHROPIC_API_KEY is absent or the call fails
 
   Models/
-    Issue.php           → Eloquent model with casts (escalated → bool, due_at → Carbon)
+    Issue.php           → Eloquent model; casts priority/status/category to PHP enums,
+                          escalated to bool, due_at to Carbon
 
 database/
-  migrations/           → issues table schema
+  migrations/           → issues table; priority/status/category as DB enum columns
   seeders/
     IssueSeeder.php     → 8 realistic sample issues (critical, security, overdue, etc.)
 
@@ -116,6 +119,20 @@ SQLite was chosen deliberately for this submission:
 - **Perfect fit for the problem size** — issue tracking for a small ops team is a write-light, read-light workload. SQLite handles thousands of rows without complaint.
 - **Easy to swap** — the only change needed to move to PostgreSQL or MySQL in production is three lines in `.env` (`DB_CONNECTION`, `DB_HOST`, `DB_DATABASE`). Laravel's schema builder generates the correct DDL for any driver.
 
+### PHP Enums for Priority, Status, and Category
+
+All three fields are backed PHP enums enforced at three levels:
+
+- **Database** — `enum` column type; the DB rejects any invalid value at write time.
+- **Validation** — `Rule::enum(Priority::class)` in FormRequest classes; the API returns a structured 422 before any business logic runs.
+- **Model** — Eloquent casts convert the stored string to the enum instance on read, so comparisons like `$issue->priority === Priority::Critical` are type-safe throughout the service layer.
+
+### API Versioning
+
+Controllers and API Resources are namespaced under `V1` (`Api/V1/IssueApiController`, `Resources/V1/IssueResource`). Routes are prefixed `/api/v1/`. When a breaking change is needed, a `V2` controller and resource are added alongside `V1` — existing clients are unaffected.
+
+Validation request classes (`StoreIssueRequest`, `UpdateIssueRequest`) are **not** versioned because they express business rules for the `Issue` model, not API contract — both the web UI and API share the same validation logic.
+
 ### Two-service split: `IssueService` + `SummaryService`
 
 All business logic lives in services, not controllers. The split between the two services is intentional:
@@ -131,9 +148,9 @@ This makes each class independently testable and the AI layer replaceable withou
 
 | Condition | Reason |
 |-----------|--------|
-| `priority === 'critical'` | Needs immediate attention regardless of status |
-| `priority === 'high'` AND `status === 'open'` | High-severity and not yet acknowledged |
-| `due_at` is in the past AND `status !== 'resolved'` | Overdue and still open |
+| `priority === Priority::Critical` | Needs immediate attention regardless of status |
+| `priority === Priority::High` AND `status === Status::Open` | High-severity and not yet acknowledged |
+| `due_at` is in the past AND `status !== Status::Resolved` | Overdue and still open |
 
 ### Summary fallback (`SummaryService::rulesFallback`)
 
@@ -141,7 +158,7 @@ When no API key is configured (or the Anthropic call fails), the fallback produc
 
 ### API JSON errors without `Accept` header
 
-The exception handler in `bootstrap/app.php` intercepts `ValidationException` and `ModelNotFoundException` for any `api/*` route and returns structured JSON (`message` + `errors`) with the correct HTTP status, regardless of whether the caller sends `Accept: application/json`. This makes the API predictable for any HTTP client.
+A `ForceJsonResponse` middleware is prepended to the API middleware group. It sets `Accept: application/json` on every `/api/*` request so Laravel's exception handler always returns JSON. Custom renderers in `bootstrap/app.php` additionally intercept `ValidationException` (422) and `NotFoundHttpException` (404) and return clean structured responses regardless of client headers.
 
 ---
 

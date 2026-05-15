@@ -3,19 +3,20 @@
 @section('title', $issue->title)
 
 @php
+    use App\Enums\Priority;
     use App\Enums\Status;
 
     $priorityColors = [
-        'critical' => 'danger',
-        'high'     => 'warning',
-        'medium'   => 'info',
-        'low'      => 'secondary',
+        Priority::Critical->value => 'danger',
+        Priority::High->value     => 'warning',
+        Priority::Medium->value   => 'info',
+        Priority::Low->value      => 'secondary',
     ];
     $statusColors = [
-        'open'        => 'primary',
-        'in_progress' => 'warning',
-        'resolved'    => 'success',
-        'closed'      => 'secondary',
+        Status::Open->value       => 'primary',
+        Status::InProgress->value => 'warning',
+        Status::Resolved->value   => 'success',
+        Status::Closed->value     => 'secondary',
     ];
     $priorityColor = $priorityColors[$issue->priority->value] ?? 'secondary';
     $statusColor   = $statusColors[$issue->status->value] ?? 'secondary';
