@@ -1,41 +1,70 @@
 # Issue Intake & Smart Summary System
 
-A Laravel 13 application for logging, triaging, and auto-summarising IT issues.  
-Issues are automatically escalated and summarised — either by the Anthropic API (claude-3-haiku-20240307) or a built-in rules-based fallback when no API key is configured.
+A Laravel 13 application that lets a support or operations team log, triage, and track IT issues. When an issue is submitted, the system automatically generates a short summary and a suggested next action — either via the Anthropic API or a built-in rules-based fallback if no API key is available.
 
 ---
 
-## Setup
+## Requirements
+
+- PHP 8.2 or higher
+- Composer
+- SQLite (bundled with PHP — no separate install needed)
+
+---
+
+## Getting Started
+
+Run these commands in order from the project root:
 
 ```bash
 composer install
 cp .env.example .env
 php artisan key:generate
+touch database/database.sqlite
 php artisan migrate --seed
 php artisan serve
 ```
 
-Open **http://localhost:8000** in your browser.
+Then open **http://localhost:8000** in your browser. The seeder loads 8 realistic sample issues covering a range of priorities, categories, and escalation states so you can see the system in action immediately.
 
-**Optional:** to enable AI-powered summaries, add your key to `.env`:
+### Optional: enable AI-powered summaries
+
+By default the system uses a rules-based engine to generate summaries. To switch to the Anthropic API, add your key to `.env` before running the seeder:
+
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+Without the key the app works fully — it just uses the built-in fallback and logs a warning to `storage/logs/laravel.log`.
+
 ---
 
-## API Endpoints
+## Using the Web UI
 
-All endpoints are prefixed `/api/v1`. The `Accept: application/json` header is not required — the API always returns JSON.
+The Blade interface at **http://localhost:8000** covers the full workflow:
+
+- **List** — browse all issues with filters for status, priority, category, and escalation flag
+- **Create** — submit a new issue; summary and suggested action are generated automatically on save
+- **View** — see the full issue detail, generated summary, and suggested action
+- **Edit** — update any field; changing the description regenerates the summary
+
+---
+
+## API Reference
+
+All endpoints are under `/api/v1`. The API always returns JSON — no `Accept` header required.
 
 ### List issues
 
 ```bash
-# All issues (paginated, 15 per page)
 curl http://localhost:8000/api/v1/issues
+```
 
-# With filters: ?status=open&priority=high&category=bug&escalated=1
+Filter by any combination of `status`, `priority`, `category`, or `escalated`:
+
+```bash
 curl "http://localhost:8000/api/v1/issues?status=open&priority=critical"
+curl "http://localhost:8000/api/v1/issues?escalated=1"
 ```
 
 ### Create an issue
@@ -58,7 +87,7 @@ curl -X POST http://localhost:8000/api/v1/issues \
 curl http://localhost:8000/api/v1/issues/1
 ```
 
-### Update an issue (partial)
+### Update an issue (partial update)
 
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/issues/1 \
@@ -66,13 +95,38 @@ curl -X PATCH http://localhost:8000/api/v1/issues/1 \
   -d '{"status": "in_progress"}'
 ```
 
+### Valid field values
+
+| Field | Accepted values |
+|---|---|
+| `priority` | `low`, `medium`, `high`, `critical` |
+| `category` | `bug`, `feature`, `infrastructure`, `performance`, `data`, `security` |
+| `status` | `open`, `in_progress`, `resolved`, `closed` |
+
+Invalid values return a structured `422` with field-level error messages.
+
+---
+
+## Running the Tests
+
+```bash
+php artisan test
+```
+
+The test suite covers:
+
+- `RulesSummaryService` — unit tests for each branch of the rules engine
+- `AnthropicSummaryService` — tests the happy path, HTTP failures, and bad response formats using `Http::fake()` (no real API call made)
+- `IssueService` escalation logic — all three escalation conditions plus the non-escalation cases, using a fake `SummaryServiceInterface` injected directly
+- API endpoints — create, validate, list, show, 404, update, and status filter
+
 ---
 
 ## Architecture & Key Decisions
 
 ```
 routes/
-  web.php          → Blade UI (GET/POST/PATCH /issues/*)
+  web.php          → Blade UI  (GET/POST/PATCH /issues/*)
   api.php          → JSON API  (GET/POST/PATCH /api/v1/issues/*)
 
 app/
@@ -81,97 +135,85 @@ app/
     Status.php     → open | in_progress | resolved | closed
     Category.php   → bug | feature | infrastructure | performance | data | security
 
-  Http/
-    Controllers/
-      IssueController.php           → web controller (returns views)
-      Api/V1/IssueApiController.php → versioned API controller (returns JSON via Resources)
-    Requests/
-      StoreIssueRequest.php         → validation for create (Rule::enum for all enum fields)
-      UpdateIssueRequest.php        → validation for update (all fields optional via sometimes)
-    Resources/
-      V1/IssueResource.php          → shapes the JSON response; exposes ->value strings
-
   Contracts/
-    SummaryServiceInterface.php  → interface both summary implementations share
+    SummaryServiceInterface.php  → contract shared by both summary implementations
 
   Services/
-    IssueService.php             → orchestrates create/update/list; calls SummaryServiceInterface;
-                                   applies escalation rules before every save
-    AnthropicSummaryService.php  → calls Anthropic API (claude-3-haiku) to generate summary + action
-    RulesSummaryService.php      → rules-based fallback; no API key required
+    IssueService.php             → creates, updates, and lists issues; applies escalation on every save
+    AnthropicSummaryService.php  → calls Anthropic API (claude-3-haiku-20240307)
+    RulesSummaryService.php      → deterministic rules-based fallback; no API key needed
+
+  Http/
+    Controllers/
+      IssueController.php           → web controller (Blade views)
+      Api/V1/IssueApiController.php → versioned API controller (JSON via Resources)
+    Requests/
+      StoreIssueRequest.php         → create validation (Rule::enum for all enum fields)
+      UpdateIssueRequest.php        → update validation (all fields optional via sometimes)
+    Resources/
+      V1/IssueResource.php          → shapes the JSON response
 
   Models/
-    Issue.php           → Eloquent model; casts priority/status/category to PHP enums,
-                          escalated to bool, due_at to Carbon
+    Issue.php  → casts priority/status/category to PHP enums, escalated to bool, due_at to Carbon
 
 database/
-  migrations/           → issues table; priority/status/category as DB enum columns
+  migrations/     → issues table with enum columns for priority, status, and category
   seeders/
-    IssueSeeder.php     → 8 realistic sample issues (critical, security, overdue, etc.)
+    IssueSeeder.php  → 8 realistic sample issues
+  factories/
+    IssueFactory.php → used by the test suite
 
-resources/views/issues/ → Bootstrap 5 Blade UI (layout, index, create, show, edit)
-config/
-  anthropic.php         → reads ANTHROPIC_API_KEY from .env
+resources/views/issues/  → Bootstrap 5 Blade UI (layout, index, create, show, edit)
+tests/
+  Unit/Services/   → RulesSummaryService, AnthropicSummaryService
+  Feature/
+    Services/      → IssueService escalation logic
+    Api/V1/        → full API endpoint coverage
 ```
 
-### Database: SQLite
+### Database — SQLite
 
-SQLite was chosen deliberately for this submission:
-
-- **Zero configuration** — a single file (`database/database.sqlite`), no server to install or start. The whole system runs with one command.
-- **Perfect fit for the problem size** — issue tracking for a small ops team is a write-light, read-light workload. SQLite handles thousands of rows without complaint.
-- **Easy to swap** — the only change needed to move to PostgreSQL or MySQL in production is three lines in `.env` (`DB_CONNECTION`, `DB_HOST`, `DB_DATABASE`). Laravel's schema builder generates the correct DDL for any driver.
+SQLite was chosen deliberately for this submission. There is nothing to install or configure — the database is a single file and the whole system runs with one command. The workload (a small ops team logging issues) is a good fit for SQLite. Moving to PostgreSQL or MySQL in production requires only three lines in `.env`; the rest of the codebase is unchanged.
 
 ### PHP Enums for Priority, Status, and Category
 
-All three fields are backed PHP enums enforced at three levels:
+All three fields are backed enums enforced at every layer:
 
-- **Database** — `enum` column type; the DB rejects any invalid value at write time.
-- **Validation** — `Rule::enum(Priority::class)` in FormRequest classes; the API returns a structured 422 before any business logic runs.
-- **Model** — Eloquent casts convert the stored string to the enum instance on read, so comparisons like `$issue->priority === Priority::Critical` are type-safe throughout the service layer.
-
-### API Versioning
-
-Controllers and API Resources are namespaced under `V1` (`Api/V1/IssueApiController`, `Resources/V1/IssueResource`). Routes are prefixed `/api/v1/`. When a breaking change is needed, a `V2` controller and resource are added alongside `V1` — existing clients are unaffected.
-
-Validation request classes (`StoreIssueRequest`, `UpdateIssueRequest`) are **not** versioned because they express business rules for the `Issue` model, not API contract — both the web UI and API share the same validation logic.
+- **Database** — `enum` column; the DB rejects invalid values at write time
+- **Validation** — `Rule::enum(Priority::class)` in FormRequest; the API returns a 422 before any business logic runs
+- **Model** — Eloquent casts convert the stored string to the enum instance on read, so comparisons like `$issue->priority === Priority::Critical` are type-safe in the service layer
+- **Views** — selects are generated from `Priority::cases()` so adding a new enum case automatically appears in the UI
 
 ### Service layer and interface split
 
-All business logic lives in services, not controllers. The structure follows the Dependency Inversion Principle:
+Business logic lives in services, not controllers. `IssueService` depends on `SummaryServiceInterface` — not on `AnthropicSummaryService` directly. `AppServiceProvider` decides which implementation to bind at boot time based on whether `ANTHROPIC_API_KEY` is set.
 
-- **`IssueService`** owns the lifecycle of an issue — creating, updating, listing, applying escalation. It depends on `SummaryServiceInterface`, not any concrete implementation.
-- **`SummaryServiceInterface`** defines the contract: `generateSummary(title, description, priority, category): array`.
-- **`AnthropicSummaryService`** implements the interface by calling the Anthropic API (claude-3-haiku-20240307).
-- **`RulesSummaryService`** implements the same interface with a deterministic `match`-based decision tree — no API key required.
+This means:
+- Swapping to a different LLM provider means writing one new class that implements the interface — nothing else changes
+- In tests, a fake implementation can be injected directly without touching the container or mocking framework magic
 
-`AppServiceProvider` selects the correct implementation at boot time based on whether `ANTHROPIC_API_KEY` is set. Swapping to a different LLM (OpenAI, Gemini) means adding one new class that implements the interface — nothing else changes.
+### Escalation logic
 
-### Escalation logic (`IssueService::applyEscalation`)
-
-`escalated` is recalculated and persisted on every create and update, so it always reflects current state:
+`escalated` is recalculated and saved on every create and update:
 
 | Condition | Reason |
-|-----------|--------|
-| `priority === Priority::Critical` | Needs immediate attention regardless of status |
-| `priority === Priority::High` AND `status === Status::Open` | High-severity and not yet acknowledged |
-| `due_at` is in the past AND `status !== Status::Resolved` | Overdue and still open |
+|---|---|
+| `priority === Critical` | Needs immediate attention regardless of status |
+| `priority === High` AND `status === Open` | High-severity and not yet acknowledged |
+| `due_at` is in the past AND `status !== Resolved` | Overdue and still unresolved |
 
-### Rules-based fallback (`RulesSummaryService`)
+### API versioning
 
-When no API key is configured, `AppServiceProvider` binds `RulesSummaryService` instead of `AnthropicSummaryService`. The fallback produces deterministic output — a priority+category summary sentence and a `suggested_action` drawn from a `match` decision tree: security → security team, critical → on-call page, high → senior engineer within the hour, and so on. A `Log::warning` is emitted at boot so operators can see when AI is unavailable.
+Controllers and Resources are namespaced under `V1`. Routes are prefixed `/api/v1/`. When a breaking change is needed, a `V2` controller and resource are added alongside `V1` without affecting existing clients.
 
-### API JSON errors without `Accept` header
-
-A `ForceJsonResponse` middleware is prepended to the API middleware group. It sets `Accept: application/json` on every `/api/*` request so Laravel's exception handler always returns JSON. Custom renderers in `bootstrap/app.php` additionally intercept `ValidationException` (422) and `NotFoundHttpException` (404) and return clean structured responses regardless of client headers.
+FormRequest classes are not versioned — they express business rules for the `Issue` model, which are the same regardless of which API version is called.
 
 ---
 
 ## What I'd Improve With More Time
 
-- **Authentication & roles** — use Laravel Sanctum (already installed) to restrict who can create/edit/resolve issues. Add role-based access (reporter vs. responder vs. admin).
-- **Job queues** — offload Anthropic API calls to a background queue job so the HTTP response is instant and never blocked by a slow API.
-- **Unit & feature tests** — test `IssueService`, `AnthropicSummaryService`, `RulesSummaryService`, escalation rules, and all four API endpoints with PHPUnit/Pest.
-- **React/Inertia frontend** — replace Blade with a React SPA via Inertia.js for richer interactivity (real-time filter, inline status updates).
-- **Audit log** — track every status change and escalation in an `issue_events` table so teams can see the history of each issue.
-- **Webhook/notification** — when `escalated` flips to `true`, fire a Slack or email notification to the on-call team.
+- **Authentication & roles** — use Laravel Sanctum (already installed) to gate who can create, edit, and resolve issues; add role-based access for reporter vs. responder vs. admin
+- **Job queues** — move Anthropic API calls to a background queue job so the HTTP response is never blocked by a slow or unavailable external service
+- **React/Inertia frontend** — replace the Blade UI with a React SPA via Inertia.js for inline status updates and real-time filtering without full page reloads
+- **Audit log** — record every status change and escalation event in an `issue_events` table so teams can see the full history of an issue
+- **Webhook notifications** — fire a Slack or email alert when `escalated` flips to `true` so the on-call team is notified immediately
