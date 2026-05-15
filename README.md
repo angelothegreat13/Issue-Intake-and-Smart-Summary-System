@@ -1,58 +1,134 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Issue Intake & Smart Summary System
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel 13 application for logging, triaging, and auto-summarising IT issues.  
+Issues are automatically escalated and summarised — either by the Anthropic API (claude-3-haiku-20240307) or a built-in rules-based fallback when no API key is configured.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
-
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Setup (5 commands)
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp .env.example .env && php artisan key:generate
+php artisan migrate
+php artisan db:seed
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Open **http://localhost:8000** in your browser.
 
-## Contributing
+**Optional:** to enable AI-powered summaries, add your key to `.env`:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## API Endpoints
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+All endpoints are prefixed `/api`. Send `Accept: application/json` for JSON error responses.
 
-## Security Vulnerabilities
+### List issues
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+# All issues (paginated, 15 per page)
+curl http://localhost:8000/api/issues \
+  -H "Accept: application/json"
 
-## License
+# With filters: ?status=open&priority=high&category=bug&escalated=1
+curl "http://localhost:8000/api/issues?status=open&priority=critical" \
+  -H "Accept: application/json"
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### Create an issue
+
+```bash
+curl -X POST http://localhost:8000/api/issues \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Login page throws 500 on mobile Safari",
+    "description": "Users on iOS 17 + Safari report a blank screen after submitting the login form. The error log shows a CSRF token mismatch, but only on mobile. Reproducible 100% of the time with iPhone 15 Pro on cellular.",
+    "priority": "high",
+    "category": "bug",
+    "status": "open"
+  }'
+```
+
+### Get a single issue
+
+```bash
+curl http://localhost:8000/api/issues/1 \
+  -H "Accept: application/json"
+```
+
+### Update an issue (partial)
+
+```bash
+curl -X PATCH http://localhost:8000/api/issues/1 \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "in_progress"}'
+```
+
+---
+
+## Architecture
+
+```
+routes/
+  web.php          → Blade UI (GET/POST/PATCH /issues/*)
+  api.php          → JSON API  (GET/POST/PATCH /api/issues/*)
+
+app/
+  Http/
+    Controllers/
+      IssueController.php         → web controller (returns views)
+      Api/IssueController.php     → API controller (returns JSON)
+    Requests/
+      StoreIssueRequest.php       → validation for create
+      UpdateIssueRequest.php      → validation for update (all fields optional)
+
+  Services/
+    IssueService.php    → orchestrates create/update/list; calls SummaryService;
+                          applies escalation rules before every save
+    SummaryService.php  → calls Anthropic API; falls back to rule-based logic
+                          when ANTHROPIC_API_KEY is absent or the call fails
+
+  Models/
+    Issue.php           → Eloquent model with casts (escalated → bool, due_at → Carbon)
+
+database/
+  migrations/           → issues table schema
+  seeders/
+    IssueSeeder.php     → 8 realistic sample issues (critical, security, overdue, etc.)
+
+resources/views/issues/ → Bootstrap 5 Blade UI (layout, index, create, show, edit)
+config/
+  anthropic.php         → reads ANTHROPIC_API_KEY from .env
+```
+
+### Escalation logic (`IssueService::applyEscalation`)
+
+`escalated` is automatically set to `true` when any of:
+
+| Condition | Reason |
+|-----------|--------|
+| `priority === 'critical'` | Needs immediate attention |
+| `priority === 'high'` AND `status === 'open'` | Unacknowledged high-severity issue |
+| `due_at` is in the past AND `status !== 'resolved'` | Overdue and unresolved |
+
+### Summary fallback (`SummaryService::rulesFallback`)
+
+When no API key is set, the fallback generates a summary from the priority + category and picks a `suggested_action` from a decision tree (security → security team, critical → on-call page, high → senior engineer, etc.).
+
+---
+
+## What I'd Improve With More Time
+
+- **Authentication & roles** — use Laravel Sanctum (already installed) to restrict who can create/edit/resolve issues. Add role-based access (reporter vs. responder vs. admin).
+- **Job queues** — offload Anthropic API calls to a background queue job so the HTTP response is instant and never blocked by a slow API.
+- **Unit & feature tests** — test `IssueService`, `SummaryService`, escalation rules, and all four API endpoints with PHPUnit/Pest.
+- **React/Inertia frontend** — replace Blade with a React SPA via Inertia.js for richer interactivity (real-time filter, inline status updates).
+- **Audit log** — track every status change and escalation in an `issue_events` table so teams can see the history of each issue.
+- **Webhook/notification** — when `escalated` flips to `true`, fire a Slack or email notification to the on-call team.
