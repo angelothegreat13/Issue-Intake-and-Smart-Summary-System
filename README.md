@@ -91,11 +91,14 @@ app/
     Resources/
       V1/IssueResource.php          → shapes the JSON response; exposes ->value strings
 
+  Contracts/
+    SummaryServiceInterface.php  → interface both summary implementations share
+
   Services/
-    IssueService.php    → orchestrates create/update/list; calls SummaryService;
-                          applies escalation rules before every save
-    SummaryService.php  → calls Anthropic API; falls back to rule-based logic
-                          when ANTHROPIC_API_KEY is absent or the call fails
+    IssueService.php             → orchestrates create/update/list; calls SummaryServiceInterface;
+                                   applies escalation rules before every save
+    AnthropicSummaryService.php  → calls Anthropic API (claude-3-haiku) to generate summary + action
+    RulesSummaryService.php      → rules-based fallback; no API key required
 
   Models/
     Issue.php           → Eloquent model; casts priority/status/category to PHP enums,
@@ -133,14 +136,16 @@ Controllers and API Resources are namespaced under `V1` (`Api/V1/IssueApiControl
 
 Validation request classes (`StoreIssueRequest`, `UpdateIssueRequest`) are **not** versioned because they express business rules for the `Issue` model, not API contract — both the web UI and API share the same validation logic.
 
-### Two-service split: `IssueService` + `SummaryService`
+### Service layer and interface split
 
-All business logic lives in services, not controllers. The split between the two services is intentional:
+All business logic lives in services, not controllers. The structure follows the Dependency Inversion Principle:
 
-- **`IssueService`** owns the lifecycle of an issue — creating, updating, listing, applying escalation. It has no knowledge of the AI provider.
-- **`SummaryService`** owns the single concern of "given this text, produce a summary and action." It tries the Anthropic API and silently degrades to rules-based output. Swapping to a different LLM provider touches only this one class.
+- **`IssueService`** owns the lifecycle of an issue — creating, updating, listing, applying escalation. It depends on `SummaryServiceInterface`, not any concrete implementation.
+- **`SummaryServiceInterface`** defines the contract: `generateSummary(title, description, priority, category): array`.
+- **`AnthropicSummaryService`** implements the interface by calling the Anthropic API (claude-3-haiku-20240307).
+- **`RulesSummaryService`** implements the same interface with a deterministic `match`-based decision tree — no API key required.
 
-This makes each class independently testable and the AI layer replaceable without touching business logic.
+`AppServiceProvider` selects the correct implementation at boot time based on whether `ANTHROPIC_API_KEY` is set. Swapping to a different LLM (OpenAI, Gemini) means adding one new class that implements the interface — nothing else changes.
 
 ### Escalation logic (`IssueService::applyEscalation`)
 
@@ -152,9 +157,9 @@ This makes each class independently testable and the AI layer replaceable withou
 | `priority === Priority::High` AND `status === Status::Open` | High-severity and not yet acknowledged |
 | `due_at` is in the past AND `status !== Status::Resolved` | Overdue and still open |
 
-### Summary fallback (`SummaryService::rulesFallback`)
+### Rules-based fallback (`RulesSummaryService`)
 
-When no API key is configured (or the Anthropic call fails), the fallback produces deterministic output — a priority+category summary sentence and a `suggested_action` drawn from a decision tree: security → security team, critical → on-call page, high → senior engineer within the hour, and so on. The fallback is logged at `warning` level so operators can see when AI is unavailable.
+When no API key is configured, `AppServiceProvider` binds `RulesSummaryService` instead of `AnthropicSummaryService`. The fallback produces deterministic output — a priority+category summary sentence and a `suggested_action` drawn from a `match` decision tree: security → security team, critical → on-call page, high → senior engineer within the hour, and so on. A `Log::warning` is emitted at boot so operators can see when AI is unavailable.
 
 ### API JSON errors without `Accept` header
 
@@ -166,7 +171,7 @@ A `ForceJsonResponse` middleware is prepended to the API middleware group. It se
 
 - **Authentication & roles** — use Laravel Sanctum (already installed) to restrict who can create/edit/resolve issues. Add role-based access (reporter vs. responder vs. admin).
 - **Job queues** — offload Anthropic API calls to a background queue job so the HTTP response is instant and never blocked by a slow API.
-- **Unit & feature tests** — test `IssueService`, `SummaryService`, escalation rules, and all four API endpoints with PHPUnit/Pest.
+- **Unit & feature tests** — test `IssueService`, `AnthropicSummaryService`, `RulesSummaryService`, escalation rules, and all four API endpoints with PHPUnit/Pest.
 - **React/Inertia frontend** — replace Blade with a React SPA via Inertia.js for richer interactivity (real-time filter, inline status updates).
 - **Audit log** — track every status change and escalation in an `issue_events` table so teams can see the history of each issue.
 - **Webhook/notification** — when `escalated` flips to `true`, fire a Slack or email notification to the on-call team.
