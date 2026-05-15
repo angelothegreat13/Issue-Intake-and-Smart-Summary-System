@@ -73,7 +73,7 @@ curl -X PATCH http://localhost:8000/api/issues/1 \
 
 ---
 
-## Architecture
+## Architecture & Key Decisions
 
 ```
 routes/
@@ -108,19 +108,40 @@ config/
   anthropic.php         → reads ANTHROPIC_API_KEY from .env
 ```
 
+### Database: SQLite
+
+SQLite was chosen deliberately for this submission:
+
+- **Zero configuration** — a single file (`database/database.sqlite`), no server to install or start. The whole system runs with one command.
+- **Perfect fit for the problem size** — issue tracking for a small ops team is a write-light, read-light workload. SQLite handles thousands of rows without complaint.
+- **Easy to swap** — the only change needed to move to PostgreSQL or MySQL in production is three lines in `.env` (`DB_CONNECTION`, `DB_HOST`, `DB_DATABASE`). Laravel's schema builder generates the correct DDL for any driver.
+
+### Two-service split: `IssueService` + `SummaryService`
+
+All business logic lives in services, not controllers. The split between the two services is intentional:
+
+- **`IssueService`** owns the lifecycle of an issue — creating, updating, listing, applying escalation. It has no knowledge of the AI provider.
+- **`SummaryService`** owns the single concern of "given this text, produce a summary and action." It tries the Anthropic API and silently degrades to rules-based output. Swapping to a different LLM provider touches only this one class.
+
+This makes each class independently testable and the AI layer replaceable without touching business logic.
+
 ### Escalation logic (`IssueService::applyEscalation`)
 
-`escalated` is automatically set to `true` when any of:
+`escalated` is recalculated and persisted on every create and update, so it always reflects current state:
 
 | Condition | Reason |
 |-----------|--------|
-| `priority === 'critical'` | Needs immediate attention |
-| `priority === 'high'` AND `status === 'open'` | Unacknowledged high-severity issue |
-| `due_at` is in the past AND `status !== 'resolved'` | Overdue and unresolved |
+| `priority === 'critical'` | Needs immediate attention regardless of status |
+| `priority === 'high'` AND `status === 'open'` | High-severity and not yet acknowledged |
+| `due_at` is in the past AND `status !== 'resolved'` | Overdue and still open |
 
 ### Summary fallback (`SummaryService::rulesFallback`)
 
-When no API key is set, the fallback generates a summary from the priority + category and picks a `suggested_action` from a decision tree (security → security team, critical → on-call page, high → senior engineer, etc.).
+When no API key is configured (or the Anthropic call fails), the fallback produces deterministic output — a priority+category summary sentence and a `suggested_action` drawn from a decision tree: security → security team, critical → on-call page, high → senior engineer within the hour, and so on. The fallback is logged at `warning` level so operators can see when AI is unavailable.
+
+### API JSON errors without `Accept` header
+
+The exception handler in `bootstrap/app.php` intercepts `ValidationException` and `ModelNotFoundException` for any `api/*` route and returns structured JSON (`message` + `errors`) with the correct HTTP status, regardless of whether the caller sends `Accept: application/json`. This makes the API predictable for any HTTP client.
 
 ---
 
