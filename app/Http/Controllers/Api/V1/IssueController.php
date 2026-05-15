@@ -1,43 +1,45 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\StoreIssueRequest;
-use App\Http\Requests\UpdateIssueRequest;
+use App\Http\Requests\V1\StoreIssueRequest;
+use App\Http\Requests\V1\UpdateIssueRequest;
+use App\Http\Resources\V1\IssueResource;
 use App\Models\Issue;
 use App\Services\IssueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class IssueController extends Controller
 {
     public function __construct(private readonly IssueService $issueService) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->only(['status', 'priority', 'category', 'escalated']);
         $issues  = $this->issueService->list($filters);
 
-        return response()->json($issues);
+        return IssueResource::collection($issues);
     }
 
     public function store(StoreIssueRequest $request): JsonResponse
     {
         $issue = $this->issueService->create($request->validated());
 
-        return response()->json($issue, 201);
+        return (new IssueResource($issue))->response()->setStatusCode(201);
     }
 
-    public function show(Issue $issue): JsonResponse
+    public function show(Issue $issue): IssueResource
     {
-        return response()->json($issue);
+        return new IssueResource($issue);
     }
 
-    public function update(UpdateIssueRequest $request, Issue $issue): JsonResponse
+    public function update(UpdateIssueRequest $request, Issue $issue): IssueResource
     {
         $this->issueService->update($issue, $request->validated());
 
-        return response()->json($issue->fresh());
+        return new IssueResource($issue->fresh());
     }
 }
