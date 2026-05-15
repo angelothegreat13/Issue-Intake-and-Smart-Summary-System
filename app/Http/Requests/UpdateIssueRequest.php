@@ -18,12 +18,12 @@ class UpdateIssueRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title'       => 'sometimes|required|string|min:5|max:200',
-            'description' => 'sometimes|required|string|min:10|max:5000',
+            'title'       => ['sometimes', 'required', 'string', 'min:5', 'max:200'],
+            'description' => ['sometimes', 'required', 'string', 'min:10', 'max:5000'],
             'priority'    => ['sometimes', 'required', Rule::enum(Priority::class)],
             'category'    => ['sometimes', 'required', Rule::enum(Category::class)],
             'status'      => ['sometimes', Rule::enum(Status::class)],
-            'due_at'      => 'nullable|date',
+            'due_at'      => ['nullable', 'date'],
         ];
     }
 }
